@@ -1,117 +1,214 @@
 import * as THREE from 'three/webgpu';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import './styles.css';
+import segaLogoUrl from './LOGO SEGA/SEGA LOGO.png';
 import { createParameters } from './simulation/parameters.js';
 import { createSimulation } from './simulation/createSimulation.js';
 import { createLabPanel } from './ui/labPanel.js';
 
 async function main() {
   const mount = document.querySelector('#app');
+  if (!mount) throw new Error('No se encontró el elemento #app en index.html.');
   if (!WebGPU.isAvailable()) {
     mount.appendChild(WebGPU.getErrorMessage());
-    throw new Error('Este proyecto requiere un navegador compatible con WebGPU.');
+    throw new Error('Se necesita un navegador compatible con WebGPU.');
   }
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#050912');
-  const camera = new THREE.OrthographicCamera(-10.5, 10.5, 7.2, -7.2, 0.1, 100);
+  scene.background = new THREE.Color('#030509');
+
+  const camera = new THREE.OrthographicCamera(-10, 10, 6, -6, 0.1, 100);
   camera.position.set(0, 0, 25);
   camera.lookAt(0, 0, 0);
 
   const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
   mount.appendChild(renderer.domElement);
   await renderer.init();
 
-  const ambient = new THREE.AmbientLight('#ffffff', 1.5);
-  scene.add(ambient);
+  scene.add(new THREE.AmbientLight('#ffffff', 1.2));
+
   const params = createParameters();
-  const simulation = createSimulation({ scene, params, onEvent: handleEvent });
   let soundEnabled = true;
   let audioContext = null;
   let started = false;
-  let endShown = false;
+  let ended = false;
   let lastTime = 0;
-  let lastSiren = 0;
-  let gameUI;
+  let simulation;
+  let finaleTimer = null;
+  let finaleOverlay = null;
+  const gameUI = createLabPanel({ onToggleSound: enabled => { soundEnabled = enabled; if (enabled) beep(620, 0.07, 'triangle', 0.035); } });
 
-  function beep(frequency = 440, duration = 0.12, type = 'sine', volume = 0.04) {
+  function beep(frequency = 440, duration = 0.12, type = 'sine', volume = 0.035) {
     if (!soundEnabled) return;
     try {
       audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
       if (audioContext.state === 'suspended') audioContext.resume();
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
-      oscillator.type = type; oscillator.frequency.value = frequency;
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
       gain.gain.setValueAtTime(volume, audioContext.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
-      oscillator.connect(gain); gain.connect(audioContext.destination);
-      oscillator.start(); oscillator.stop(audioContext.currentTime + duration);
-    } catch {}
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + duration);
+    } catch (error) {
+      // El juego sigue funcionando aunque el navegador bloquee el audio.
+    }
   }
 
-  function handleEvent(type, value) {
-    if (type === 'start') {
-      started = true; endShown = false;
-      gameUI.hideIntro(); gameUI.hideEnd();
-      gameUI.setStatus('LA POLICÍA TE PERSIGUE');
-      beep(660,0.1,'square'); setTimeout(() => beep(880,0.13,'square'),100);
-    } else if (type === 'pickup') {
-      gameUI.setCount(value, 3); gameUI.setStatus('LETRA ACTIVADA');
-      beep(720,0.08,'triangle'); setTimeout(() => beep(960,0.15,'triangle'),80);
+  function eventHandler(type, value, extra) {
+    if (type === 'pickup') {
+      gameUI.setCount(value, extra || params.ringsPerLetter);
+      gameUI.setStatus(value >= params.ringsPerLetter ? '¡SALIDA ABIERTA! BUSCA EL PORTAL' : 'ANILLO CONSEGUIDO');
+      beep(740, 0.08, 'triangle', 0.04);
+      setTimeout(() => beep(980, 0.12, 'triangle', 0.035), 70);
+    } else if (type === 'exitOpen') {
+      gameUI.setStatus('¡SALIDA ABIERTA! LLEGA AL PORTAL VERDE');
+      beep(520, 0.16, 'square', 0.025);
     } else if (type === 'crash') {
-      gameUI.setStatus('¡CUIDADO CON LOS TRAZOS!');
-      beep(120,0.18,'sawtooth',0.055);
-    } else if (type === 'caught') {
-      started = false; endShown = true; gameUI.showEnd(false); gameUI.setStatus('PERSECUCIÓN TERMINADA');
-      beep(190,0.4,'sawtooth',0.06);
+      gameUI.setStatus('¡CUIDADO CON EL BORDE!');
+      beep(105, 0.20, 'sawtooth', 0.065);
+      setTimeout(() => beep(76, 0.12, 'square', 0.035), 60);
+    } else if (type === 'portal') {
+      gameUI.setStatus('PORTAL: BRAZO INFERIOR');
+      beep(390, 0.12, 'triangle', 0.04);
+    } else if (type === 'transitionStart') {
+      gameUI.setStatus(`ENTRANDO EN ${value}`);
+      beep(430, 0.1, 'square', 0.025);
+    } else if (type === 'newLetter') {
+      gameUI.setLetter(value, extra, 4);
+      gameUI.setCount(0, params.ringsPerLetter);
+      gameUI.setStatus('RECOGE 3 ANILLOS Y ENCUENTRA LA SALIDA');
+      [520, 660, 820].forEach((frequency, i) => setTimeout(() => beep(frequency, 0.08, 'triangle', 0.025), i * 55));
     } else if (type === 'win') {
-      started = false; endShown = true; gameUI.showEnd(true); gameUI.setStatus('¡ESCAPASTE!');
-      [523,659,784,1046].forEach((f,i) => setTimeout(() => beep(f,0.22,'triangle',0.045),i*130));
-    } else if (type === 'reset') {
-      started = true; endShown = false; gameUI.hideEnd(); gameUI.hideIntro(); gameUI.setCount(0,3); gameUI.setStatus('LA POLICÍA TE PERSIGUE');
+      started = false;
+      ended = true;
+      gameUI.hideEnd();
+      playFinale();
+      [523, 659, 784, 1046, 1318].forEach((frequency, i) => setTimeout(() => beep(frequency, 0.18, 'triangle', 0.04), i * 145));
     }
   }
 
-  gameUI = createLabPanel({
-    onStart: () => { if (!started) { simulation.reset(); handleEvent('start'); } },
-    onReset: () => { simulation.reset(); handleEvent('reset'); },
-    onToggleSound: (enabled) => { soundEnabled = enabled; if (enabled) beep(600,0.08,'triangle'); }
-  });
 
-  // Inicio mediante Enter y reinicio mediante R.
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Enter' && !started && !endShown) {
+  function ensureFinale() {
+    if (finaleOverlay) return finaleOverlay;
+    const style = document.createElement('style');
+    style.textContent = `
+      .finale-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;overflow:hidden;background:#030509;opacity:0;pointer-events:none;transition:opacity .55s ease;font-family:monospace}
+      .finale-overlay.active{opacity:1;pointer-events:auto}
+      .finale-streaks{position:absolute;inset:0;opacity:0;background:repeating-linear-gradient(112deg,transparent 0 8%,rgba(255,255,255,.18) 8.2% 8.45%,transparent 8.7% 15%);transform:translateX(-120%);}
+      .finale-overlay.run .finale-streaks{animation:finale-streak 1s ease-out forwards}
+      .finale-taxi{position:absolute;left:50%;bottom:-18%;width:58px;height:32px;background:#d8aa12;border:4px solid #090b10;box-shadow:0 0 0 2px #e9c33e,0 0 24px #e6bb24;transform:translate(-50%,0) rotate(-12deg);border-radius:3px;z-index:2}
+      .finale-taxi:before{content:'';position:absolute;inset:5px 12px;background:#090f18;border:2px solid #06080b}
+      .finale-taxi:after{content:'';position:absolute;left:22px;top:-7px;width:10px;height:6px;background:#fff;box-shadow:-24px 34px 0 #fff,24px 34px 0 #fff}
+      .finale-overlay.run .finale-taxi{animation:finale-taxi-escape 1.65s cubic-bezier(.25,.7,.25,1) forwards}
+      .finale-logo{position:relative;z-index:1;width:min(78vw,1000px);max-height:65vh;object-fit:contain;opacity:0;transform:scale(.72);filter:blur(18px);transition:opacity 1s ease,transform 1.2s cubic-bezier(.16,1,.3,1),filter 1s ease}
+      .finale-overlay.reveal .finale-logo{opacity:1;transform:scale(1);filter:blur(0)}
+      .finale-caption{position:absolute;bottom:8%;left:0;right:0;text-align:center;color:#f5f7ff;letter-spacing:.28em;font-size:clamp(11px,1.5vw,16px);opacity:0;transition:opacity .6s ease .5s}
+      .finale-overlay.reveal .finale-caption{opacity:.8}
+      @keyframes finale-taxi-escape{0%{left:50%;bottom:-18%;transform:translate(-50%,0) rotate(-12deg) scale(1)}45%{left:56%;bottom:45%;transform:translate(-50%,0) rotate(18deg) scale(1.25)}75%{left:67%;bottom:72%;transform:translate(-50%,0) rotate(35deg) scale(.8)}100%{left:120%;bottom:120%;transform:translate(-50%,0) rotate(55deg) scale(.12)}}
+      @keyframes finale-streak{0%{opacity:0;transform:translateX(-120%)}35%{opacity:.85}100%{opacity:0;transform:translateX(120%)}}
+      @media(prefers-reduced-motion:reduce){.finale-overlay.run .finale-taxi,.finale-overlay.run .finale-streaks{animation-duration:.2s}.finale-logo{transition-duration:.2s}}
+    `;
+    document.head.append(style);
+    finaleOverlay = document.createElement('div');
+    finaleOverlay.className = 'finale-overlay';
+    finaleOverlay.setAttribute('aria-label', 'Final de la experiencia');
+    finaleOverlay.innerHTML = `
+      <div class="finale-streaks"></div>
+      <div class="finale-taxi" aria-hidden="true"></div>
+      <img class="finale-logo" alt="SEGA" />
+      <div class="finale-caption">RUTA COMPLETADA</div>
+    `;
+    finaleOverlay.querySelector('.finale-logo').src = segaLogoUrl;
+    document.body.append(finaleOverlay);
+    return finaleOverlay;
+  }
+
+  function playFinale() {
+    const overlay = ensureFinale();
+    if (finaleTimer) clearTimeout(finaleTimer);
+    overlay.classList.remove('run', 'reveal', 'active');
+    // Reinicia la animación para que pueda reproducirse de nuevo sin recargar la página.
+    void overlay.offsetWidth;
+    overlay.classList.add('active', 'run');
+    finaleTimer = setTimeout(() => {
+      overlay.classList.add('reveal');
+      beep(1046, 0.28, 'triangle', 0.045);
+    }, 1450);
+  }
+
+  function hideFinale() {
+    if (finaleTimer) clearTimeout(finaleTimer);
+    if (finaleOverlay) finaleOverlay.classList.remove('active', 'run', 'reveal');
+  }
+
+  simulation = await createSimulation({ scene, params, onEvent: eventHandler });
+  gameUI.setLetter('S', 1, 4);
+  gameUI.setCount(0, params.ringsPerLetter);
+  gameUI.setStatus('ESCAPA');
+
+  function beginExperience() {
+    if (started && !ended) return;
+    if (ended) simulation.reset();
+    hideFinale();
+    started = true;
+    ended = false;
+    gameUI.hideIntro();
+    gameUI.hideEnd();
+    simulation.start();
+    gameUI.setStatus('EXPLORA LA LETRA');
+    beep(660, 0.11, 'square', 0.03);
+    setTimeout(() => beep(880, 0.15, 'square', 0.03), 100);
+  }
+
+  window.addEventListener('keydown', event => {
+    if (event.code === 'Space' && (!started || ended)) {
+      event.preventDefault();
       if (audioContext?.state === 'suspended') audioContext.resume();
-      simulation.reset(); handleEvent('start');
+      beginExperience();
     }
-    if (e.code === 'KeyR' && endShown) { simulation.reset(); handleEvent('reset'); }
+    if (event.code === 'KeyM' && !event.repeat) {
+      soundEnabled = !soundEnabled;
+      gameUI.setSoundEnabled(soundEnabled);
+      if (soundEnabled) beep(620, 0.07, 'triangle', 0.035);
+    }
+    if (event.code === 'Escape' && started && !ended) {
+      started = false;
+      gameUI.showIntro();
+      gameUI.setStatus('ESCAPA');
+      simulation.reset();
+    }
   });
 
   window.addEventListener('resize', () => {
-    renderer.setSize(innerWidth, innerHeight);
-    const aspect = innerWidth / innerHeight;
-    const h = 7.2;
-    camera.left = -h * aspect; camera.right = h * aspect;
-    camera.top = h; camera.bottom = -h;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    const halfHeight = 6;
+    camera.left = -halfHeight * aspect;
+    camera.right = halfHeight * aspect;
+    camera.top = halfHeight;
+    camera.bottom = -halfHeight;
     camera.updateProjectionMatrix();
   });
 
-  renderer.setAnimationLoop((time) => {
-    const dt = lastTime ? Math.min((time-lastTime)/1000, 0.04) : 0.016;
+  renderer.setAnimationLoop(time => {
+    const dt = lastTime ? Math.min((time - lastTime) / 1000, 0.035) : 0.016;
     lastTime = time;
-    if (started) simulation.update(dt);
-    simulation.animateDecor(time);
-    const state = simulation.getState();
-    if (state.collected !== undefined) gameUI.setCount(state.collected,state.total);
-    renderer.render(scene,camera);
+    if (started && !ended) simulation.update(dt);
+    simulation.animateDecor(time, dt);
+    renderer.render(scene, camera);
   });
 }
-main().catch((error) => {
+
+main().catch(error => {
   console.error(error);
   const pre = document.createElement('pre');
-  pre.style.cssText = 'position:fixed;inset:16px;padding:16px;background:#180c13;color:#fff;white-space:pre-wrap;z-index:100';
-  pre.textContent = `No se pudo iniciar SEGA TAXI.\n${error?.stack || error}`;
+  pre.style.cssText = 'position:fixed;inset:12px;padding:16px;background:#190b10;color:#fff;white-space:pre-wrap;z-index:100;overflow:auto';
+  pre.textContent = `No se pudo iniciar la experiencia.\n${error?.stack || error}`;
   document.body.append(pre);
 });

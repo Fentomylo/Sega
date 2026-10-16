@@ -1,46 +1,90 @@
 :root {
-  font-family: Inter, "Arial", sans-serif;
-  color: #f5f8ff;
-  background: #050912;
+  color: #f7f7f7;
+  background: #000;
+  font-family: "Courier New", monospace;
   font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: none;
 }
 * { box-sizing: border-box; }
-html, body, #app { width:100%; height:100%; margin:0; overflow:hidden; }
-body { background:#050912; }
-canvas { display:block; width:100%; height:100%; }
-.game-ui {
-  position:fixed; z-index:10; left:50%; top:50%; transform:translate(-50%,-50%);
-  width:min(520px,calc(100vw - 32px)); padding:clamp(24px,5vw,48px);
-  background:rgba(4,10,21,.93); border:1px solid rgba(45,144,255,.55);
-  box-shadow:0 0 70px rgba(0,104,255,.16), inset 0 0 36px rgba(0,102,255,.05);
-  text-align:center; transition:opacity .35s, transform .35s;
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { background: #000; }
+canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+.press-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: clamp(90px, 24vh, 270px);
+  background: #000;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .22s steps(3, end), visibility .22s;
 }
-.game-ui.is-hidden { opacity:0; pointer-events:none; transform:translate(-50%,-47%) scale(.98); }
-.brand { font-weight:1000; font-size:clamp(40px,8vw,70px); letter-spacing:-.09em; color:#1688ff; text-shadow:0 0 24px #0069ff66; font-style:italic; }
-.brand span { color:#fff; font-size:.32em; letter-spacing:.12em; vertical-align:middle; margin-left:12px; }
-.eyebrow { color:#67b4ff; font-size:10px; font-weight:800; letter-spacing:.24em; }
-.game-ui h1 { margin:18px 0 12px; font-size:clamp(24px,5vw,38px); line-height:1; letter-spacing:-.045em; }
-.intro-copy { color:#aebdd1; font-size:14px; line-height:1.6; max-width:340px; margin:0 auto 24px; }
-.controls { display:flex; justify-content:center; gap:10px; margin:18px 0 24px; }
-.controls span { border:1px solid #23466e; padding:8px 10px; font-size:10px; letter-spacing:.1em; color:#c9e4ff; }
-button { width:100%; border:0; padding:14px 16px; cursor:pointer; font:800 11px Inter,Arial,sans-serif; letter-spacing:.12em; }
-.primary { color:#031020; background:#1688ff; box-shadow:0 0 24px #0877e833; }
-.primary:hover { background:#66b4ff; }
-.secondary { margin-top:8px; color:#d4e8ff; background:transparent; border:1px solid #23466e; }
-.small { color:#657b97; font-size:10px; margin:22px 0 0; }
-.hud { position:fixed; z-index:8; left:18px; top:18px; padding:14px 16px; min-width:210px; background:#06101ddd; border:1px solid #174b7c; box-shadow:0 0 24px #0069ff15; pointer-events:none; }
-.hud-brand { font-weight:1000; color:#1688ff; font-size:18px; font-style:italic; letter-spacing:-.04em; }
-#collect-count { margin-top:8px; color:#93a9c2; font-size:10px; letter-spacing:.1em; }
-#collect-count b { color:#ffe66d; margin-left:8px; }
-#status { margin-top:10px; color:#e9f4ff; font-size:10px; letter-spacing:.08em; }
-.hud-help { margin-top:8px; color:#657b97; font-size:9px; }
-.message-overlay { position:fixed; z-index:20; inset:0; display:grid; place-items:center; background:#020610bd; opacity:0; pointer-events:none; transition:opacity .25s; }
-.message-overlay.visible { opacity:1; pointer-events:auto; }
-.message-card { width:min(420px,calc(100vw - 32px)); padding:32px; text-align:center; background:#07111f; border:1px solid #1d70bb; box-shadow:0 0 70px #0069ff22; }
-.message-card h2 { font-size:32px; margin:12px 0; }
-.message-card p:not(.eyebrow) { color:#aebdd1; font-size:13px; line-height:1.6; margin-bottom:22px; }
-.message-card button { background:#1688ff; color:#031020; }
-@media (max-width:600px) {
-  .hud { left:10px; top:10px; min-width:170px; padding:10px; }
-  .hud-help { display:none; }
+.press-screen.press-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+.press-start {
+  color: #f5f5f5;
+  font-family: "Courier New", monospace;
+  font-size: clamp(20px, 2vw, 36px);
+  font-weight: 900;
+  letter-spacing: .045em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff;
+  image-rendering: pixelated;
+  animation: start-blink 1.05s steps(2, start) infinite;
+}
+@keyframes start-blink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: .82; } }
+
+.hud {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 12;
+  width: min(250px, calc(100vw - 36px));
+  padding: 12px;
+  border: 1px solid rgba(47, 157, 255, .5);
+  background: rgba(0, 7, 15, .88);
+  color: #e9f5ff;
+  font: 700 10px/1.6 "Courier New", monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  box-shadow: 0 0 18px rgba(0, 100, 255, .08);
+}
+.hud-hidden { display: none; }
+.hud-level, .ring-line, .damage-line { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.hud-level { margin-bottom: 8px; color: #4eb2ff; font-size: 12px; }
+.ring-line, .damage-line { padding: 4px 0; color: #b9cfe0; }
+.ring-line strong { color: #ffd447; }
+.damage-line strong { color: #63ffbd; }
+.damage-track { height: 4px; margin: 3px 0 9px; background: #192b38; overflow: hidden; }
+.damage-track span { display: block; width: 0; height: 100%; background: #ff3f58; transition: width .15s linear; }
+.hud-status { margin: 7px 0; min-height: 28px; color: #fff; }
+.hud-help { color: #7193aa; font-size: 9px; }
+.sound-button { margin-top: 8px; padding: 5px 7px; border: 1px solid #25445c; background: #030b12; color: #8ecfff; font: inherit; cursor: pointer; }
+.sound-button:hover { background: #0b1d2b; }
+
+.end-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .84);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s steps(3, end), visibility .2s;
+}
+.end-screen.visible { opacity: 1; visibility: visible; }
+.end-card { display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 30px; text-align: center; }
+.end-title { font-size: clamp(20px, 3vw, 34px); font-weight: 900; letter-spacing: .08em; }
+.end-card p { color: #b7b7b7; font-size: 12px; }
+.end-restart { font-size: clamp(14px, 2vw, 22px); margin-top: 10px; }
+@media (max-width: 600px) {
+  .hud { top: 8px; left: 8px; width: 220px; padding: 8px; }
+  .press-screen { padding-top: 15vh; }
 }
