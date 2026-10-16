@@ -18,26 +18,26 @@ const RING_VOLUME = 0.8;
 const WORD_LETTERS = [
   {
     name: 'S',
-    white: new URL('./letras blancas/S_blanco.png', import.meta.url).href,
-    blue: new URL('./letras azules/S_azul.png', import.meta.url).href,
+    white: new URL('./LETRAS BLANCAS/S_blanco.png', import.meta.url).href,
+    blue: new URL('./LETRAS AZULES/S_azul.png', import.meta.url).href,
     from: ['-60vw', '0vh'], rotation: '-28deg', delay: '0s'
   },
   {
     name: 'E',
-    white: new URL('./letras blancas/E_blanco.png', import.meta.url).href,
-    blue: new URL('./letras azules/E_azul.png', import.meta.url).href,
+    white: new URL('./LETRAS BLANCAS/E_blanco.png', import.meta.url).href,
+    blue: new URL('./LETRAS AZULES/E_azul.png', import.meta.url).href,
     from: ['0vw', '-70vh'], rotation: '22deg', delay: '.14s'
   },
   {
     name: 'G',
-    white: new URL('./letras blancas/G_blanco.png', import.meta.url).href,
-    blue: new URL('./letras azules/G_azul.png', import.meta.url).href,
+    white: new URL('./LETRAS BLANCAS/G_blanco.png', import.meta.url).href,
+    blue: new URL('./LETRAS AZULES/G_azul.png', import.meta.url).href,
     from: ['0vw', '70vh'], rotation: '-22deg', delay: '.28s'
   },
   {
     name: 'A',
-    white: new URL('./letras blancas/A_blanco.png', import.meta.url).href,
-    blue: new URL('./letras azules/A_azul.png', import.meta.url).href,
+    white: new URL('./LETRAS BLANCAS/A_blanco.png', import.meta.url).href,
+    blue: new URL('./LETRAS AZULES/A_azul.png', import.meta.url).href,
     from: ['60vw', '0vh'], rotation: '28deg', delay: '.42s'
   }
 ];
