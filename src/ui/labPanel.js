@@ -121,3 +121,5 @@ export function createLabPanel({ onToggleSound }) {
     isSoundEnabled() { return soundEnabled; }
   };
 }
+
+//
