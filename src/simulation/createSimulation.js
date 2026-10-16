@@ -8,6 +8,46 @@ import * as THREE from 'three/webgpu';
  * - La estela blanca la crea el taxi en tiempo real.
  * - Tres anillos desbloquean la salida de cada letra.
  */
+// Cola de prioridad mínima (para buscar la ruta real de cada letra).
+class MinHeap {
+  constructor() { this.keys = []; this.values = []; }
+  get size() { return this.keys.length; }
+  push(key, value) {
+    const { keys, values } = this;
+    let i = keys.length;
+    keys.push(key); values.push(value);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (keys[parent] <= key) break;
+      keys[i] = keys[parent]; values[i] = values[parent];
+      i = parent;
+    }
+    keys[i] = key; values[i] = value;
+  }
+  pop() {
+    const { keys, values } = this;
+    const topKey = keys[0], topValue = values[0];
+    const lastKey = keys.pop(), lastValue = values.pop();
+    const n = keys.length;
+    if (n) {
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && keys[c + 1] < keys[c]) c++;
+        if (keys[c] >= lastKey) break;
+        keys[i] = keys[c]; values[i] = values[c];
+        i = c;
+      }
+      keys[i] = lastKey; values[i] = lastValue;
+    }
+    return [topKey, topValue];
+  }
+}
+
+const NAV_STRIDE = 2;
+const NAV_NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
 export async function createSimulation({ scene, params, onEvent = () => {} }) {
   const loader = new THREE.TextureLoader();
   const world = new THREE.Group();
@@ -148,6 +188,10 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   let transition = null;
   let lastCrashTime = -Infinity;
   let lastTrailPoint = null;
+  // Grabación del recorrido: la estela de la letra actual (trazos en coordenadas de mundo)
+  // y los recorridos ya terminados de cada letra, normalizados 0..1 sobre el PNG.
+  let recording = [[]];
+  let recordedTrails = [];
   // Contrarreloj: cada letra tiene su propio tiempo; el total sirve para el marcador final.
   let timeLeft = params.timePerLetter;
   let totalTime = 0;
@@ -246,7 +290,9 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
 
     // Candidatos de navegación calculados a partir de píxeles azules reales.
     // El centro del carro no puede estar en blanco ni fuera de la letra.
-    const stride = 2;
+    const stride = NAV_STRIDE;
+    // Rejilla de navegación: cada punto válido es un nodo (su índice = índice en validPoints).
+    stage.nav = { nodeAt: new Int32Array(def.blue.width * def.blue.height).fill(-1), px: [], py: [], clear: null };
     for (let py = 3; py < def.blue.height - 3; py += stride) {
       for (let px = 3; px < def.blue.width - 3; px += stride) {
         const pi = py * def.blue.width + px;
@@ -254,7 +300,12 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
         const x = (px / (def.blue.width - 1) - 0.5) * imageWidth;
         const y = (0.5 - py / (def.blue.height - 1)) * imageHeight;
         const p = new THREE.Vector2(x, y);
-        if (isSafeLocal(stage, p, 0)) stage.validPoints.push(p);
+        if (isSafeLocal(stage, p, 0)) {
+          stage.nav.nodeAt[pi] = stage.validPoints.length;
+          stage.nav.px.push(px);
+          stage.nav.py.push(py);
+          stage.validPoints.push(p);
+        }
       }
     }
 
@@ -265,12 +316,37 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     stage.entry.copy(nearestPoint(stage, def.entryUV, [], 0));
     stage.exit.copy(nearestPoint(stage, def.exitUV, [stage.entry], 1.0));
 
-    // Tres anillos por letra, colocados sobre superficie transitable.
+    // Portal de la E (puntos): se calculan antes porque forman parte de la ruta de la letra.
+    if (def.name === 'E') {
+      stage.portalEntry = nearestPoint(stage, def.portalEntryUV || [0.83, 0.21], [stage.entry, stage.exit], 0.45);
+      stage.portalExit = nearestPoint(stage, def.portalExitUV || [0.83, 0.80], [stage.entry, stage.exit, stage.portalEntry], 0.45);
+    }
+
+    // Ruta real de la letra (entrada -> salida) por el azul transitable, y anillos repartidos
+    // a lo largo de ella (25 %, 50 %, 75 %). Si no hay ruta, se usan las posiciones a mano.
+    computeClearance(stage);
+    const route = planRoute(stage);
+    stage.route = route;
+    const ringPoints = [];
+    const avoidRing = [stage.entry, stage.exit, stage.portalEntry, stage.portalExit].filter(Boolean);
     for (let i = 0; i < params.ringsPerLetter; i++) {
-      const desired = def.ringsUV[i] || [0.5, 0.5];
-      const avoid = [stage.entry, stage.exit, ...stage.rings.map(r => r.position)];
-      const point = nearestPoint(stage, desired, avoid, 1.15);
+      let point = null;
+      if (route) {
+        const base = (i + 1) / (params.ringsPerLetter + 1);
+        for (const offset of [0, 0.04, -0.04, 0.08, -0.08, 0.12, -0.12]) {
+          const f = Math.min(0.97, Math.max(0.03, base + offset));
+          point = pointAlongRoute(route, f);
+          if (avoidRing.every(other => point.distanceTo(other) > 0.7)) break;
+        }
+      } else {
+        const desired = def.ringsUV[i] || [0.5, 0.5];
+        point = nearestPoint(stage, desired, [...avoidRing, ...ringPoints], 1.15);
+      }
+      ringPoints.push(point);
+    }
+    ringPoints.forEach((point, i) => {
       const ringMaterial = materials.ring.clone();
+      ringMaterial.transparent = true;
       const ringMesh = new THREE.Mesh(
         new THREE.TorusGeometry(0.20, 0.055, 9, 24),
         ringMaterial
@@ -278,6 +354,21 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
       ringMesh.position.set(point.x, point.y, 0.16);
       root.add(ringMesh);
       stage.rings.push({ position: point, mesh: ringMesh, active: true, offset: i * 1.7 });
+    });
+
+    // Pintar la letra: la salida pide cubrir parte de ella con la estela. El mínimo se limita
+    // a lo que la propia ruta cubre con el pincel, para que siempre sea alcanzable.
+    stage.painted = new Uint8Array(stage.validPoints.length);
+    stage.paintedCount = 0;
+    stage.paintFraction = 0;
+    stage.paintRequired = 0;
+    if (route) {
+      const probe = new Uint8Array(stage.validPoints.length);
+      let covered = 0;
+      for (const segment of route) {
+        for (let i = 0; i < segment.length; i += 5) covered += stampPaint(stage, probe, segment[i], params.paintBrushRadius);
+      }
+      stage.paintRequired = Math.min(params.paintRequired, (covered / stage.validPoints.length) * 0.85);
     }
 
     const exitMesh = new THREE.Mesh(
@@ -292,8 +383,6 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     // Portal interno de la E: brazo superior derecho -> brazo inferior derecho.
     // No sustituye los anillos ni la salida que lleva a la siguiente letra.
     if (def.name === 'E') {
-      stage.portalEntry = nearestPoint(stage, def.portalEntryUV || [0.83, 0.21], [stage.entry, stage.exit], 0.45);
-      stage.portalExit = nearestPoint(stage, def.portalExitUV || [0.83, 0.80], [stage.entry, stage.exit, stage.portalEntry], 0.45);
       for (const point of [stage.portalEntry, stage.portalExit]) {
         const portal = new THREE.Group();
         const glow = new THREE.Mesh(new THREE.CircleGeometry(0.37, 28), materials.trailGlow);
@@ -335,6 +424,156 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     return best ? best.clone() : new THREE.Vector2(0, 0);
   }
 
+  function nearestNodeId(stage, point) {
+    let best = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i < stage.validPoints.length; i++) {
+      const q = stage.validPoints[i];
+      const d = (q.x - point.x) ** 2 + (q.y - point.y) ** 2;
+      if (d < bestDistance) { best = i; bestDistance = d; }
+    }
+    return best;
+  }
+
+  // Distancia (en pasos de rejilla) de cada nodo al borde de la letra: sirve para que la ruta
+  // vaya por el centro del camino y no pegada a las paredes.
+  function computeClearance(stage) {
+    const { nodeAt, px, py } = stage.nav;
+    const W = stage.blue.width;
+    const n = stage.validPoints.length;
+    const clear = new Float32Array(n).fill(-1);
+    const queue = new Int32Array(n);
+    let head = 0;
+    let tail = 0;
+    for (let i = 0; i < n; i++) {
+      const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => nodeAt[(py[i] + dy * NAV_STRIDE) * W + px[i] + dx * NAV_STRIDE] < 0);
+      if (edge) { clear[i] = 0; queue[tail++] = i; }
+    }
+    while (head < tail) {
+      const u = queue[head++];
+      for (const [dx, dy] of NAV_NEIGHBORS.slice(0, 4)) {
+        const v = nodeAt[(py[u] + dy * NAV_STRIDE) * W + px[u] + dx * NAV_STRIDE];
+        if (v < 0 || clear[v] >= 0) continue;
+        clear[v] = clear[u] + 1;
+        queue[tail++] = v;
+      }
+    }
+    for (let i = 0; i < n; i++) if (clear[i] < 0) clear[i] = 0;
+    stage.nav.clear = clear;
+  }
+
+  // Dijkstra sobre la rejilla: camino corto, pero penalizando ir pegado a las paredes.
+  function findRoute(stage, startId, goalId) {
+    const { nodeAt, px, py, clear } = stage.nav;
+    const W = stage.blue.width;
+    const n = stage.validPoints.length;
+    const dist = new Float32Array(n).fill(Infinity);
+    const prev = new Int32Array(n).fill(-1);
+    const heap = new MinHeap();
+    dist[startId] = 0;
+    heap.push(0, startId);
+    while (heap.size) {
+      const [d, u] = heap.pop();
+      if (d > dist[u]) continue;
+      if (u === goalId) break;
+      for (const [dx, dy] of NAV_NEIGHBORS) {
+        const v = nodeAt[(py[u] + dy * NAV_STRIDE) * W + px[u] + dx * NAV_STRIDE];
+        if (v < 0) continue;
+        const nd = d + Math.hypot(dx, dy) * (1 + 5 / (1 + clear[v]));
+        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; heap.push(nd, v); }
+      }
+    }
+    if (!Number.isFinite(dist[goalId])) return null;
+    const ids = [];
+    for (let at = goalId; at !== -1; at = prev[at]) ids.push(at);
+    return ids.reverse();
+  }
+
+  // Ruta de la letra como tramos de puntos. En la E, el portal parte la ruta en dos tramos
+  // (entrada -> portal, y salida del portal -> salida de la letra).
+  function planRoute(stage) {
+    const legs = stage.portalEntry && stage.portalExit
+      ? [[stage.entry, stage.portalEntry], [stage.portalExit, stage.exit]]
+      : [[stage.entry, stage.exit]];
+    const segments = [];
+    for (const [from, to] of legs) {
+      const ids = findRoute(stage, nearestNodeId(stage, from), nearestNodeId(stage, to));
+      if (!ids || ids.length < 2) return null;
+      segments.push(ids.map(id => stage.validPoints[id]));
+    }
+    return segments;
+  }
+
+  function pointAlongRoute(segments, fraction) {
+    const lengths = segments.map(seg => seg.reduce((sum, p, i) => (i ? sum + p.distanceTo(seg[i - 1]) : 0), 0));
+    let target = fraction * lengths.reduce((a, b) => a + b, 0);
+    for (let s = 0; s < segments.length; s++) {
+      const seg = segments[s];
+      if (target > lengths[s]) { target -= lengths[s]; continue; }
+      for (let i = 1; i < seg.length; i++) {
+        const d = seg[i].distanceTo(seg[i - 1]);
+        if (target <= d) return seg[i - 1].clone().lerp(seg[i], d ? target / d : 0);
+        target -= d;
+      }
+      return seg[seg.length - 1].clone();
+    }
+    const last = segments[segments.length - 1];
+    return last[last.length - 1].clone();
+  }
+
+  // Marca como pintados los nodos dentro del radio del pincel; devuelve cuántos son nuevos.
+  function stampPaint(stage, painted, point, radius) {
+    const { nodeAt } = stage.nav;
+    const W = stage.blue.width;
+    const H = stage.blue.height;
+    const pxPerX = (W - 1) / stage.imageWidth;
+    const pxPerY = (H - 1) / stage.imageHeight;
+    const cx = (point.x / stage.imageWidth + 0.5) * (W - 1);
+    const cy = (0.5 - point.y / stage.imageHeight) * (H - 1);
+    const kx0 = Math.max(0, Math.ceil((cx - radius * pxPerX - 3) / NAV_STRIDE));
+    const kx1 = Math.floor((cx + radius * pxPerX - 3) / NAV_STRIDE);
+    const ky0 = Math.max(0, Math.ceil((cy - radius * pxPerY - 3) / NAV_STRIDE));
+    const ky1 = Math.floor((cy + radius * pxPerY - 3) / NAV_STRIDE);
+    let added = 0;
+    for (let ky = ky0; ky <= ky1; ky++) {
+      const py = 3 + ky * NAV_STRIDE;
+      if (py >= H - 3) break;
+      for (let kx = kx0; kx <= kx1; kx++) {
+        const px = 3 + kx * NAV_STRIDE;
+        if (px >= W - 3) break;
+        const id = nodeAt[py * W + px];
+        if (id < 0 || painted[id]) continue;
+        const dx = (px - cx) / pxPerX;
+        const dy = (py - cy) / pxPerY;
+        if (dx * dx + dy * dy > radius * radius) continue;
+        painted[id] = 1;
+        added++;
+      }
+    }
+    return added;
+  }
+
+  function resetPaint(stage) {
+    stage.painted.fill(0);
+    stage.paintedCount = 0;
+    stage.paintFraction = 0;
+    onEvent('paint', 0, stage.paintRequired);
+  }
+
+  function refreshRingStates(stage) {
+    stage.rings.forEach((ring, i) => {
+      ring.mesh.material.opacity = ring.active && i === ringsCollected ? 1 : 0.4;
+    });
+  }
+
+  function updateExit(stage) {
+    if (stage.exitMesh.visible) return;
+    if (ringsCollected >= params.ringsPerLetter && stage.paintFraction >= stage.paintRequired) {
+      stage.exitMesh.visible = true;
+      onEvent('exitOpen', stage.name);
+    }
+  }
+
   function isDriveableLocal(stage, point) {
     const u = point.x / stage.imageWidth + 0.5;
     const v = 0.5 - point.y / stage.imageHeight;
@@ -370,7 +609,21 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     car.userData.velocity.set(0, 0);
   }
 
+  function breakStroke() {
+    if (recording[recording.length - 1].length) recording.push([]);
+  }
+
+  // Guarda el recorrido de la letra actual (u,v en 0..1 sobre su imagen) antes de borrar la estela.
+  function recordCurrentLetter() {
+    const stage = activeStage();
+    const strokes = recording
+      .filter(stroke => stroke.length > 1)
+      .map(stroke => stroke.map(p => [p.x / stage.imageWidth + 0.5, 0.5 - p.y / stage.imageHeight]));
+    recordedTrails[currentIndex] = { name: stage.name, aspect: stage.imageWidth / stage.imageHeight, strokes };
+  }
+
   function clearTrail() {
+    recording = [[]];
     while (trailGroup.children.length) {
       const object = trailGroup.children[trailGroup.children.length - 1];
       trailGroup.remove(object);
@@ -385,6 +638,10 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     const dy = to.y - from.y;
     const distance = Math.hypot(dx, dy);
     if (distance < 0.015) return;
+
+    const stroke = recording[recording.length - 1];
+    if (!stroke.length) stroke.push({ x: from.x, y: from.y });
+    stroke.push({ x: to.x, y: to.y });
 
     const angle = Math.atan2(dy, dx);
     const midpointX = (from.x + to.x) * 0.5;
@@ -439,8 +696,21 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     setCarPosition(taxi, taxiPosition, stage.entryHeading ?? 0);
     taxi.visible = true;
     clearTrail();
+    resetPaint(stage);
+    stampPaintAtTaxi(stage);
+    refreshRingStates(stage);
     timeLeft = params.timePerLetter;
     onEvent('tick', timeLeft, 0);
+  }
+
+  function stampPaintAtTaxi(stage) {
+    const added = stampPaint(stage, stage.painted, taxiPosition, params.paintBrushRadius);
+    if (!added) return;
+    stage.paintedCount += added;
+    const fraction = stage.paintedCount / stage.validPoints.length;
+    const changed = Math.round(fraction * 100) !== Math.round(stage.paintFraction * 100);
+    stage.paintFraction = fraction;
+    if (changed) onEvent('paint', fraction, stage.paintRequired);
   }
 
   function start() {
@@ -449,6 +719,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     timedOut = false;
     totalTime = 0;
     portalCooldownTaxi = 0;
+    recordedTrails = [];
     if (activeStage().root.position.x !== 0) activeStage().root.position.x = 0;
     activeStage().root.visible = true;
     placeTaxiOnCurrentLetter();
@@ -465,6 +736,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     totalTime = 0;
     portalCooldownTaxi = 0;
     transition = null;
+    recordedTrails = [];
     stages.forEach((stage, i) => {
       stage.root.position.x = 0;
       stage.root.visible = i === 0;
@@ -473,6 +745,9 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
       stage.exitMesh.visible = false;
       stage.exitMesh.scale.setScalar(1);
       stage.portalUsed = false;
+      stage.painted.fill(0);
+      stage.paintedCount = 0;
+      stage.paintFraction = 0;
     });
     taxi.visible = false;
     setCarPosition(taxi, new THREE.Vector2(), 0);
@@ -481,7 +756,9 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   }
 
   function beginTransition() {
-    if (transition || ringsCollected < params.ringsPerLetter) return;
+    if (transition || !activeStage().exitMesh.visible) return;
+    // Se guarda el recorrido de esta letra antes de que la transición borre la estela.
+    recordCurrentLetter();
     if (currentIndex === stages.length - 1) {
       won = true;
       onEvent('logoReveal');
@@ -555,6 +832,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     const speed = Math.max(2.2, taxi.userData.velocity.length());
     taxi.userData.velocity.set(-speed, 0);
     portalCooldownTaxi = 1.25;
+    breakStroke();
     lastTrailPoint = taxiPosition.clone();
     onEvent('portal', 'taxi');
     return true;
@@ -643,6 +921,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
       taxi.position.x = taxiPosition.x;
       taxi.position.y = taxiPosition.y;
       collide(impact);
+      breakStroke();
       lastTrailPoint = taxiPosition.clone();
     } else if (movedResult.moved) {
       if (!lastTrailPoint) lastTrailPoint = taxiPosition.clone();
@@ -655,34 +934,40 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     teleportThroughEPortal();
     onEvent('tick', timeLeft, taxi.userData.velocity.length());
 
-    // Recoger tres anillos para abrir la salida de esta letra.
-    for (const ring of stage.rings) {
-      if (!ring.active || taxiPosition.distanceTo(ring.position) > 0.38) continue;
-      ring.active = false;
-      ring.mesh.visible = false;
+    // Pintar la letra con la estela del taxi.
+    if (movedResult.moved) stampPaintAtTaxi(stage);
+
+    // Los anillos se recogen EN ORDEN a lo largo de la ruta de la letra (solo cuenta el siguiente).
+    const nextRing = stage.rings[ringsCollected];
+    if (nextRing && nextRing.active && taxiPosition.distanceTo(nextRing.position) <= 0.38) {
+      nextRing.active = false;
+      nextRing.mesh.visible = false;
+      spawnSparks(nextRing.position);
       ringsCollected++;
       stage.ringCount = ringsCollected;
+      refreshRingStates(stage);
       // Cada anillo devuelve un poco de tiempo, sin superar el máximo por letra.
       timeLeft = Math.min(params.timePerLetter, timeLeft + params.ringTimeBonus);
       onEvent('pickup', ringsCollected, params.ringsPerLetter, stage.name);
-      if (ringsCollected === params.ringsPerLetter) {
-        stage.exitMesh.visible = true;
-        onEvent('exitOpen', stage.name);
-      }
     }
 
-    if (ringsCollected >= params.ringsPerLetter && taxiPosition.distanceTo(stage.exit) < 0.48) {
+    // La salida se abre con los anillos completos Y la letra pintada lo suficiente.
+    updateExit(stage);
+
+    if (stage.exitMesh.visible && taxiPosition.distanceTo(stage.exit) < 0.48) {
       beginTransition();
     }
   }
 
   function animateDecor(time, dt = 1 / 60) {
     const stage = activeStage();
-    for (const ring of stage.rings) {
-      if (!ring.active) continue;
+    stage.rings.forEach((ring, i) => {
+      if (!ring.active) return;
       ring.mesh.rotation.z = time * 0.0015 + ring.offset;
-      ring.mesh.scale.setScalar(1 + Math.sin(time * 0.005 + ring.offset) * 0.08);
-    }
+      // El siguiente anillo a recoger es más grande y brillante.
+      const size = i === ringsCollected ? 1.25 : 0.85;
+      ring.mesh.scale.setScalar((1 + Math.sin(time * 0.005 + ring.offset) * 0.08) * size);
+    });
     if (stage.exitMesh.visible) {
       stage.exitMesh.rotation.z = -time * 0.0018;
       stage.exitMesh.scale.setScalar(1 + Math.sin(time * 0.006) * 0.1);
@@ -727,6 +1012,8 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     start,
     reset,
     dispose,
+    // Recorridos grabados por letra: [{ name, aspect, strokes: [[[u,v], ...], ...] }, ...]
+    getRecordedTrails: () => recordedTrails.slice(),
     getState: () => ({
       currentLetter: activeStage().name,
       currentIndex,

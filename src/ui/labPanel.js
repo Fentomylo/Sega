@@ -5,6 +5,12 @@ export function createLabPanel({ onToggleSound }) {
   intro.innerHTML = '<div class="press-start">PRESS START</div>';
   document.body.append(intro);
 
+  // Filtro retro (líneas de barrido, viñeta y leve parpadeo) sobre toda la experiencia.
+  const crt = document.createElement('div');
+  crt.className = 'crt';
+  crt.setAttribute('aria-hidden', 'true');
+  document.body.append(crt);
+
   // Líneas de velocidad: se intensifican cuando el taxi va cerca de su velocidad máxima.
   const speedLines = document.createElement('div');
   speedLines.className = 'speed-lines';
@@ -26,6 +32,7 @@ export function createLabPanel({ onToggleSound }) {
     <div class="hud-level"><span id="letter-name">LETRA S</span><span id="letter-index">01 / 04</span></div>
     <div class="word" id="word" aria-label="Progreso de la palabra SEGA"><span>S</span><span>E</span><span>G</span><span>A</span></div>
     <div class="ring-line"><span>ANILLOS</span><strong id="ring-count">0 / 3</strong></div>
+    <div class="ring-line"><span>PINTADO</span><strong id="paint-value">0% / 0%</strong></div>
     <div class="ring-line"><span>VELOCIDAD</span><strong id="speed-value">0 KM/H</strong></div>
     <div class="hud-status" id="status">ESCAPA</div>
     <div class="hud-help">WASD / FLECHAS · SPACE: DERRAPE · M: SONIDO</div>
@@ -101,6 +108,12 @@ export function createLabPanel({ onToggleSound }) {
         letter.classList.toggle('done', i < index - 1);
         letter.classList.toggle('active', i === index - 1);
       });
+    },
+    // fraction: parte de la letra pintada (0..1); required: la que hace falta para abrir la salida.
+    setPaint(fraction, required) {
+      const value = hud.querySelector('#paint-value');
+      value.textContent = `${Math.round(fraction * 100)}% / ${Math.round(required * 100)}%`;
+      value.style.color = fraction >= required ? '#55ff9b' : '';
     },
     setCount(n, total) { hud.querySelector('#ring-count').textContent = `${n} / ${total}`; },
     setStatus(text) { hud.querySelector('#status').textContent = text; },

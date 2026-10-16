@@ -16,9 +16,9 @@ canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; 
   inset: 0;
   z-index: 30;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: clamp(90px, 24vh, 270px);
+  padding: 0 24px;
   background: #000;
   opacity: 1;
   visibility: visible;
@@ -36,6 +36,12 @@ canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; 
   text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff;
   image-rendering: pixelated;
   animation: start-blink 1.05s steps(2, start) infinite;
+}
+/* PRESS START de la pantalla inicial: grande y centrado (el de "retry" conserva su tamaño). */
+.press-screen .press-start {
+  font-size: clamp(48px, 9vw, 150px);
+  text-align: center;
+  text-shadow: 3px 0 #fff, -3px 0 #fff, 0 3px #fff, 0 -3px #fff, 0 0 28px rgba(47, 157, 255, .55);
 }
 @keyframes start-blink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: .82; } }
 
@@ -142,8 +148,21 @@ canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; 
 .end-title { font-size: clamp(20px, 3vw, 34px); font-weight: 900; letter-spacing: .08em; }
 .end-card p { color: #b7b7b7; font-size: 12px; }
 .end-restart { font-size: clamp(14px, 2vw, 22px); margin-top: 10px; }
+
+/* Filtro retro encima de todo: líneas de barrido, viñeta y un leve parpadeo de CRT. */
+.crt {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .55) 100%);
+  animation: crt-flicker .12s steps(2, end) infinite;
+}
+@keyframes crt-flicker { 0% { opacity: 1; } 100% { opacity: .93; } }
+@media (prefers-reduced-motion: reduce) { .crt { animation: none; } }
 @media (max-width: 600px) {
   .hud { top: 8px; left: 8px; width: 220px; padding: 8px; }
   .timer { top: auto; bottom: 14px; }
-  .press-screen { padding-top: 15vh; }
 }
