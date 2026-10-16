@@ -373,9 +373,27 @@ async function main() {
     }
   }
 
+  function makeFallbackTrail(letterName) {
+    const templates = {
+      S: [[0.18, 0.82], [0.80, 0.82], [0.82, 0.56], [0.28, 0.50], [0.18, 0.18], [0.82, 0.18]],
+      E: [[0.18, 0.18], [0.18, 0.82], [0.82, 0.82], [0.18, 0.50], [0.70, 0.50], [0.18, 0.18]],
+      G: [[0.82, 0.18], [0.20, 0.18], [0.20, 0.82], [0.82, 0.82], [0.82, 0.50], [0.45, 0.50]],
+      A: [[0.18, 0.82], [0.50, 0.18], [0.82, 0.82], [0.32, 0.50], [0.68, 0.50]]
+    };
+    const points = templates[letterName] || templates.S;
+    return { name: letterName, aspect: 1, strokes: [points] };
+  }
+
   // Ajusta cada canvas a la proporción de su letra y lo deja vacío.
   function prepareTrails(overlay) {
-    const trails = simulation.getRecordedTrails();
+    const recorded = simulation.getRecordedTrails();
+    const trails = WORD_LETTERS.map((letter, i) => {
+      const trail = recorded[i];
+      if (trail && Array.isArray(trail.strokes) && trail.strokes.some(stroke => Array.isArray(stroke) && stroke.length > 1)) {
+        return trail;
+      }
+      return makeFallbackTrail(letter.name);
+    });
     const canvases = [...overlay.querySelectorAll('.letter-trail')];
     canvases.forEach((canvas, i) => {
       const letterEl = canvas.closest('.finale-letter');
