@@ -6,6 +6,14 @@ import fondoUrl from './FONDO.png';
 import bgmUrl from './MUSICA/green-hill-zone.mp3';
 import segaJingleUrl from './MUSICA/SEGA.mp3';
 import ringSfxUrl from './MUSICA/Sonic Ring - Sound Effect (HD).mp3';
+import sWhite from './LETRAS BLANCAS/S_blanco.png';
+import eWhite from './LETRAS BLANCAS/E_blanco.png';
+import gWhite from './LETRAS BLANCAS/G_blanco.png';
+import aWhite from './LETRAS BLANCAS/A_blanco.png';
+import sBlue from './LETRAS AZULES/S_azul.png';
+import eBlue from './LETRAS AZULES/E_azul.png';
+import gBlue from './LETRAS AZULES/G_azul.png';
+import aBlue from './LETRAS AZULES/A_azul.png';
 import { createParameters } from './simulation/parameters.js';
 import { createSimulation } from './simulation/createSimulation.js';
 import { createLabPanel } from './ui/labPanel.js';
@@ -18,26 +26,26 @@ const RING_VOLUME = 0.8;
 const WORD_LETTERS = [
   {
     name: 'S',
-    white: new URL('./LETRAS BLANCAS/S_blanco.png', import.meta.url).href,
-    blue: new URL('./LETRAS AZULES/S_azul.png', import.meta.url).href,
+    white: sWhite,
+    blue: sBlue,
     from: ['-60vw', '0vh'], rotation: '-28deg', delay: '0s'
   },
   {
     name: 'E',
-    white: new URL('./LETRAS BLANCAS/E_blanco.png', import.meta.url).href,
-    blue: new URL('./LETRAS AZULES/E_azul.png', import.meta.url).href,
+    white: eWhite,
+    blue: eBlue,
     from: ['0vw', '-70vh'], rotation: '22deg', delay: '.14s'
   },
   {
     name: 'G',
-    white: new URL('./LETRAS BLANCAS/G_blanco.png', import.meta.url).href,
-    blue: new URL('./LETRAS AZULES/G_azul.png', import.meta.url).href,
+    white: gWhite,
+    blue: gBlue,
     from: ['0vw', '70vh'], rotation: '-22deg', delay: '.28s'
   },
   {
     name: 'A',
-    white: new URL('./LETRAS BLANCAS/A_blanco.png', import.meta.url).href,
-    blue: new URL('./LETRAS AZULES/A_azul.png', import.meta.url).href,
+    white: aWhite,
+    blue: aBlue,
     from: ['60vw', '0vh'], rotation: '28deg', delay: '.42s'
   }
 ];
