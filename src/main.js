@@ -287,7 +287,7 @@ async function main() {
       .finale-letter{position:relative;height:min(34vh,21vw);opacity:0;will-change:transform,filter;transition:height 1s cubic-bezier(.16,1,.3,1)}
       .finale-letter img{display:block;height:100%;width:auto}
       .finale-letter .letter-blue{position:absolute;inset:0;width:100%;height:100%}
-      .finale-letter .letter-trail{position:absolute;inset:0;width:100%;height:100%;image-rendering:auto;pointer-events:none}
+      .finale-letter .letter-trail{position:absolute;inset:0;display:block;width:100%;height:100%;image-rendering:auto;pointer-events:none;z-index:2}
       .finale-overlay.letters .finale-letter{animation:finale-letter-in .75s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
       .finale-logo-wrap{position:relative;z-index:1;display:grid;place-items:center;opacity:0;pointer-events:none;will-change:transform,filter}
       .finale-logo{display:block;width:min(70vw,920px);max-height:60vh;object-fit:contain}
@@ -340,6 +340,8 @@ async function main() {
   // Dibuja la estela blanca (con halo azul) hasta el porcentaje "progress" del recorrido.
   function drawLetterTrail(canvas, trail, progress) {
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!trail || !trail.strokes.length || progress <= 0) return;
     const W = canvas.width;
@@ -376,8 +378,19 @@ async function main() {
     const trails = simulation.getRecordedTrails();
     const canvases = [...overlay.querySelectorAll('.letter-trail')];
     canvases.forEach((canvas, i) => {
-      canvas.height = 640;
-      canvas.width = Math.round(640 * (trails[i]?.aspect || 1));
+      const letterEl = canvas.closest('.finale-letter');
+      const rect = letterEl?.getBoundingClientRect();
+      const width = Math.max(1, Math.round(rect?.width || 160));
+      const height = Math.max(1, Math.round(rect?.height || 160));
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
     });
     return { trails, canvases };
   }
