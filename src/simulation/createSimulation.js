@@ -69,15 +69,15 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   const definitions = [
     {
       name: 'S',
-      blueURL: new URL('../letras azules/S_azul.png', import.meta.url).href,
-      whiteURL: new URL('../letras blancas/S_blanco.png', import.meta.url).href,
+      blueURL: new URL('../LETRAS AZULES/S_azul.png', import.meta.url).href,
+      whiteURL: new URL('../LETRAS BLANCAS/S_blanco.png', import.meta.url).href,
       entryUV: [0.13, 0.78], exitUV: [0.84, 0.22],
       ringsUV: [[0.28, 0.22], [0.76, 0.49], [0.30, 0.81]]
     },
     {
       name: 'E',
-      blueURL: new URL('../letras azules/E_azul.png', import.meta.url).href,
-      whiteURL: new URL('../letras blancas/E_blanco.png', import.meta.url).href,
+      blueURL: new URL('../LETRAS AZULES/E_azul.png', import.meta.url).href,
+      whiteURL: new URL('../LETRAS BLANCAS/E_blanco.png', import.meta.url).href,
       entryUV: [0.12, 0.52], exitUV: [0.85, 0.21],
       ringsUV: [[0.24, 0.22], [0.70, 0.49], [0.27, 0.80]],
       // Portal interior: desde la rama central hacia la rama inferior.
@@ -86,8 +86,8 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     },
     {
       name: 'G',
-      blueURL: new URL('../letras azules/G_azul.png', import.meta.url).href,
-      whiteURL: new URL('../letras blancas/G_blanco.png', import.meta.url).href,
+      blueURL: new URL('../LETRAS AZULES/G_azul.png', import.meta.url).href,
+      whiteURL: new URL('../LETRAS BLANCAS/G_blanco.png', import.meta.url).href,
       // La entrada a la G aparece en la zona verde marcada por el usuario,
       // junto al tramo vertical interior. La salida hacia la A queda arriba a la derecha (rojo).
       entryUV: [0.51, 0.56], exitUV: [0.85, 0.17],
@@ -95,8 +95,8 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     },
     {
       name: 'A',
-      blueURL: new URL('../letras azules/A_azul.png', import.meta.url).href,
-      whiteURL: new URL('../letras blancas/A_blanco.png', import.meta.url).href,
+      blueURL: new URL('../LETRAS AZULES/A_azul.png', import.meta.url).href,
+      whiteURL: new URL('../LETRAS BLANCAS/A_blanco.png', import.meta.url).href,
       // La A comienza abajo a la izquierda: el taxi entra mirando hacia arriba
       // y recorre la silueta hasta la salida inferior central marcada por el usuario.
       entryUV: [0.20, 0.91], entryHeading: 1.18,
@@ -144,7 +144,13 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   }
 
   async function loadLayer(url, kind) {
-    const texture = await loader.loadAsync(url);
+    let texture;
+    try {
+      texture = await loader.loadAsync(url);
+    } catch (error) {
+      // El navegador solo devuelve un "Event"; aquí se dice qué archivo falló.
+      throw new Error(`No se pudo cargar la imagen: ${decodeURIComponent(url)}`);
+    }
     const image = texture.image;
     texture.dispose();
     return imageToCanvas(image, kind);
