@@ -285,8 +285,11 @@ async function main() {
       .finale-overlay.reveal .finale-word{gap:clamp(1px,.4vw,6px)}
       .finale-overlay.reveal .finale-letter{height:min(40vh,23vw)}
       .finale-letter{position:relative;height:min(34vh,21vw);opacity:0;will-change:transform,filter;transition:height 1s cubic-bezier(.16,1,.3,1)}
-      .finale-letter img{display:block;height:100%;width:auto}
-      .finale-letter .letter-blue{position:absolute;inset:0;width:100%;height:100%}
+      .finale-letter img{display:block;height:100%;width:auto;object-fit:contain}
+      .finale-letter .letter-white,
+      .finale-letter .letter-blue{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 12px rgba(0,0,0,.18))}
+      .finale-letter .letter-blue{z-index:0;mix-blend-mode:screen}
+      .finale-letter .letter-white{z-index:1}
       .finale-letter .letter-trail{position:absolute;inset:0;display:block;width:100%;height:100%;image-rendering:auto;pointer-events:none;z-index:2}
       .finale-overlay.letters .finale-letter{animation:finale-letter-in .75s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
       .finale-logo-wrap{position:relative;z-index:1;display:grid;place-items:center;opacity:0;pointer-events:none;will-change:transform,filter}
