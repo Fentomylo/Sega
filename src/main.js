@@ -38,6 +38,7 @@ async function main() {
   let simulation;
   let finaleTimer = null;
   let finaleOverlay = null;
+  let lastWarningSecond = null;
   const gameUI = createLabPanel({ onToggleSound: enabled => { soundEnabled = enabled; if (enabled) beep(620, 0.07, 'triangle', 0.035); } });
 
   function beep(frequency = 440, duration = 0.12, type = 'sine', volume = 0.035) {
@@ -61,16 +62,37 @@ async function main() {
   }
 
   function eventHandler(type, value, extra) {
-    if (type === 'pickup') {
+    if (type === 'tick') {
+      // value = segundos restantes, extra = velocidad actual del taxi.
+      gameUI.setTime(value, params.timePerLetter, params.warningTime);
+      gameUI.setSpeed(extra / params.maxSpeed, extra * params.speedDisplayFactor);
+      // Pitido cada segundo en los últimos segundos.
+      if (value > params.warningTime) {
+        lastWarningSecond = null;
+      } else if (value > 0) {
+        const second = Math.ceil(value);
+        if (second !== lastWarningSecond) {
+          lastWarningSecond = second;
+          beep(880, 0.07, 'square', 0.03);
+        }
+      }
+    } else if (type === 'timeout') {
+      started = false;
+      ended = true;
+      lastWarningSecond = null;
+      gameUI.setStatus('¡SE ACABÓ EL TIEMPO!');
+      gameUI.showEnd(false, 'TIME UP', `Se acabó el tiempo en la letra ${value}. Pulsa espacio para volver a intentarlo.`);
+      [330, 247, 196, 147].forEach((frequency, i) => setTimeout(() => beep(frequency, 0.16, 'sawtooth', 0.045), i * 120));
+    } else if (type === 'pickup') {
       gameUI.setCount(value, extra || params.ringsPerLetter);
-      gameUI.setStatus(value >= params.ringsPerLetter ? '¡SALIDA ABIERTA! BUSCA EL PORTAL' : 'ANILLO CONSEGUIDO');
+      gameUI.setStatus(value >= params.ringsPerLetter ? `¡SALIDA ABIERTA! +${params.ringTimeBonus} S` : `ANILLO +${params.ringTimeBonus} S`);
       beep(740, 0.08, 'triangle', 0.04);
       setTimeout(() => beep(980, 0.12, 'triangle', 0.035), 70);
     } else if (type === 'exitOpen') {
       gameUI.setStatus('¡SALIDA ABIERTA! LLEGA AL PORTAL VERDE');
       beep(520, 0.16, 'square', 0.025);
     } else if (type === 'crash') {
-      gameUI.setStatus('¡CUIDADO CON EL BORDE!');
+      gameUI.setStatus(`¡CHOQUE! -${value ?? params.crashTimePenalty} S`);
       beep(105, 0.20, 'sawtooth', 0.065);
       setTimeout(() => beep(76, 0.12, 'square', 0.035), 60);
     } else if (type === 'portal') {
@@ -82,13 +104,13 @@ async function main() {
     } else if (type === 'newLetter') {
       gameUI.setLetter(value, extra, 4);
       gameUI.setCount(0, params.ringsPerLetter);
-      gameUI.setStatus('RECOGE 3 ANILLOS Y ENCUENTRA LA SALIDA');
+      gameUI.setStatus(`¡${params.timePerLetter} S! RECOGE ${params.ringsPerLetter} ANILLOS Y SAL`);
       [520, 660, 820].forEach((frequency, i) => setTimeout(() => beep(frequency, 0.08, 'triangle', 0.025), i * 55));
     } else if (type === 'win') {
       started = false;
       ended = true;
       gameUI.hideEnd();
-      playFinale();
+      playFinale(value, saveBestTime(value));
       [523, 659, 784, 1046, 1318].forEach((frequency, i) => setTimeout(() => beep(frequency, 0.18, 'triangle', 0.04), i * 145));
     }
   }
@@ -129,8 +151,28 @@ async function main() {
     return finaleOverlay;
   }
 
-  function playFinale() {
+  // Récord de tiempo total, guardado en el navegador (si el almacenamiento falla, el juego sigue).
+  function saveBestTime(totalSeconds) {
+    const key = 'sega-taxi-best-time';
+    try {
+      const previous = Number(localStorage.getItem(key));
+      const isRecord = !previous || totalSeconds < previous;
+      if (isRecord) localStorage.setItem(key, String(totalSeconds));
+      return { isRecord, best: isRecord ? totalSeconds : previous };
+    } catch (error) {
+      return { isRecord: false, best: null };
+    }
+  }
+
+  function playFinale(totalSeconds, record) {
     const overlay = ensureFinale();
+    let caption = 'RUTA COMPLETADA';
+    if (Number.isFinite(totalSeconds)) {
+      caption += ` · ${totalSeconds.toFixed(2)} S`;
+      if (record?.isRecord) caption += ' · ¡NUEVO RÉCORD!';
+      else if (record?.best) caption += ` · MEJOR ${record.best.toFixed(2)} S`;
+    }
+    overlay.querySelector('.finale-caption').textContent = caption;
     if (finaleTimer) clearTimeout(finaleTimer);
     overlay.classList.remove('run', 'reveal', 'active');
     // Reinicia la animación para que pueda reproducirse de nuevo sin recargar la página.
@@ -161,7 +203,10 @@ async function main() {
     gameUI.hideIntro();
     gameUI.hideEnd();
     simulation.start();
-    gameUI.setStatus('EXPLORA LA LETRA');
+    // Tras perder o ganar, el HUD debe volver a la primera letra.
+    gameUI.setLetter('S', 1, 4);
+    gameUI.setCount(0, params.ringsPerLetter);
+    gameUI.setStatus(`¡CORRE! ${params.timePerLetter} S POR LETRA`);
     beep(660, 0.11, 'square', 0.03);
     setTimeout(() => beep(880, 0.15, 'square', 0.03), 100);
   }

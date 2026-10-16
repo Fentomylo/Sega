@@ -148,6 +148,10 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   let transition = null;
   let lastCrashTime = -Infinity;
   let lastTrailPoint = null;
+  // Contrarreloj: cada letra tiene su propio tiempo; el total sirve para el marcador final.
+  let timeLeft = params.timePerLetter;
+  let totalTime = 0;
+  let timedOut = false;
   const keys = new Set();
   const taxiPosition = new THREE.Vector2();
   const scratch = new THREE.Vector2();
@@ -414,12 +418,11 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     const now = performance.now() / 1000;
     if (now - lastCrashTime < params.crashCooldown) return;
     lastCrashTime = now;
-    // La velocidad ya se invierte en update() al detectar el borde blanco.
-    // No volver a invertirla aquí: eso anulaba el rebote y empujaba al taxi hacia delante.
-    taxi.userData.heading += (Math.random() > 0.5 ? 1 : -1) * 0.22;
-    taxi.rotation.z = taxi.userData.heading;
+    // El rebote de la velocidad se hace en update(); aquí no se toca la orientación del taxi.
+    // Consecuencia real del choque: pierdes tiempo (el siguiente frame detecta si llega a 0).
+    timeLeft = Math.max(0, timeLeft - params.crashTimePenalty);
     spawnSparks(point);
-    onEvent('crash');
+    onEvent('crash', params.crashTimePenalty);
   }
 
   function onKeyDown(event) {
@@ -436,11 +439,15 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     setCarPosition(taxi, taxiPosition, stage.entryHeading ?? 0);
     taxi.visible = true;
     clearTrail();
+    timeLeft = params.timePerLetter;
+    onEvent('tick', timeLeft, 0);
   }
 
   function start() {
     intro = false;
     won = false;
+    timedOut = false;
+    totalTime = 0;
     portalCooldownTaxi = 0;
     if (activeStage().root.position.x !== 0) activeStage().root.position.x = 0;
     activeStage().root.visible = true;
@@ -453,6 +460,9 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     ringsCollected = 0;
     intro = true;
     won = false;
+    timedOut = false;
+    timeLeft = params.timePerLetter;
+    totalTime = 0;
     portalCooldownTaxi = 0;
     transition = null;
     stages.forEach((stage, i) => {
@@ -475,7 +485,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     if (currentIndex === stages.length - 1) {
       won = true;
       onEvent('logoReveal');
-      onEvent('win');
+      onEvent('win', totalTime);
       return;
     }
     const nextIndex = currentIndex + 1;
@@ -551,7 +561,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
   }
 
   function update(dt) {
-    if (intro || won) return;
+    if (intro || won || timedOut) return;
 
     if (transition) {
       transition.elapsed += dt;
@@ -564,6 +574,19 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     }
 
     const stage = activeStage();
+
+    // El reloj corre solo mientras se conduce (no durante la transición entre letras).
+    timeLeft -= dt;
+    totalTime += dt;
+    if (timeLeft <= 0) {
+      timeLeft = 0;
+      timedOut = true;
+      taxi.userData.velocity.set(0, 0);
+      onEvent('tick', 0, 0);
+      onEvent('timeout', stage.name);
+      return;
+    }
+
     portalCooldownTaxi = Math.max(0, portalCooldownTaxi - dt);
     const velocity = taxi.userData.velocity;
     const forward = (keys.has('ArrowUp') || keys.has('KeyW') ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyS') ? 1 : 0);
@@ -592,35 +615,27 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     taxi.position.x = taxiPosition.x;
     taxi.position.y = taxiPosition.y;
     if (movedResult.hitWall) {
-      // Rebote robusto: no basta con invertir la velocidad si la caja del coche
-      // sigue orientada contra la pared. Giramos en la dirección del rebote y
-      // buscamos un punto libre un poco más atrás para que nunca quede pegado.
+      // Rebote: el taxi sale despedido hacia atrás, pero SIN girar. Conserva su
+      // orientación, así que al chocar de frente puede volver a acelerar hacia delante.
       const impact = taxiPosition.clone().add(delta);
       const incoming = velocity.clone();
       const impactSpeed = incoming.length();
       if (impactSpeed > 0.08) {
         const bounceDir = incoming.clone().normalize().multiplyScalar(-1);
-        const bounceHeading = Math.atan2(bounceDir.y, bounceDir.x);
-        taxi.userData.heading = bounceHeading;
-        taxi.rotation.z = bounceHeading;
 
-        // Separar el coche del borde con la orientación nueva; esto evita que
-        // la comprobación de las esquinas lo deje atrapado en la misma pared.
+        // Separar el coche del borde (con su misma orientación) para que no quede pegado.
         let escaped = false;
         for (let push = 0.045; push <= 0.54; push += 0.045) {
           const candidate = taxiPosition.clone().addScaledVector(bounceDir, push);
-          if (canDriveWorld(stage, candidate, bounceHeading)) {
+          if (canDriveWorld(stage, candidate, heading)) {
             taxiPosition.copy(candidate);
             escaped = true;
             break;
           }
         }
 
-        // Si la zona es muy estrecha, conservar la última posición segura,
-        // pero dar un impulso suficiente para que el siguiente frame se libere.
-        velocity.copy(bounceDir).multiplyScalar(Math.max(impactSpeed * 0.78, 1.65));
-        const side = new THREE.Vector2(-velocity.y, velocity.x);
-        velocity.addScaledVector(side, (Math.random() - 0.5) * 0.12);
+        // Rebote suave: lo justo para despegar de la pared sin mandar al taxi lejos.
+        velocity.copy(bounceDir).multiplyScalar(Math.max(impactSpeed * 0.4, 1.0));
         if (!escaped) velocity.multiplyScalar(1.12);
       } else {
         velocity.set(0, 0);
@@ -638,6 +653,7 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
     }
 
     teleportThroughEPortal();
+    onEvent('tick', timeLeft, taxi.userData.velocity.length());
 
     // Recoger tres anillos para abrir la salida de esta letra.
     for (const ring of stage.rings) {
@@ -646,6 +662,8 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
       ring.mesh.visible = false;
       ringsCollected++;
       stage.ringCount = ringsCollected;
+      // Cada anillo devuelve un poco de tiempo, sin superar el máximo por letra.
+      timeLeft = Math.min(params.timePerLetter, timeLeft + params.ringTimeBonus);
       onEvent('pickup', ringsCollected, params.ringsPerLetter, stage.name);
       if (ringsCollected === params.ringsPerLetter) {
         stage.exitMesh.visible = true;
@@ -714,6 +732,9 @@ export async function createSimulation({ scene, params, onEvent = () => {} }) {
       currentIndex,
       total: stages.length,
       collected: ringsCollected,
+      timeLeft,
+      totalTime,
+      timedOut,
       ringsRequired: params.ringsPerLetter,
       won,
       intro,

@@ -5,11 +5,28 @@ export function createLabPanel({ onToggleSound }) {
   intro.innerHTML = '<div class="press-start">PRESS START</div>';
   document.body.append(intro);
 
+  // Líneas de velocidad: se intensifican cuando el taxi va cerca de su velocidad máxima.
+  const speedLines = document.createElement('div');
+  speedLines.className = 'speed-lines';
+  document.body.append(speedLines);
+
+  // Cronómetro grande y central, estilo arcade.
+  const timer = document.createElement('div');
+  timer.className = 'timer hud-hidden';
+  timer.innerHTML = `
+    <div class="timer-label">TIEMPO</div>
+    <div class="timer-value" id="timer-value">10.0</div>
+    <div class="timer-bar"><span id="timer-fill"></span></div>
+  `;
+  document.body.append(timer);
+
   const hud = document.createElement('aside');
   hud.className = 'hud hud-hidden';
   hud.innerHTML = `
     <div class="hud-level"><span id="letter-name">LETRA S</span><span id="letter-index">01 / 04</span></div>
+    <div class="word" id="word" aria-label="Progreso de la palabra SEGA"><span>S</span><span>E</span><span>G</span><span>A</span></div>
     <div class="ring-line"><span>ANILLOS</span><strong id="ring-count">0 / 3</strong></div>
+    <div class="ring-line"><span>VELOCIDAD</span><strong id="speed-value">0 KM/H</strong></div>
     <div class="hud-status" id="status">ESCAPA</div>
     <div class="hud-help">WASD / FLECHAS · SPACE: DERRAPE · M: SONIDO</div>
     <button class="sound-button" id="sound-toggle" type="button">SONIDO: ON</button>
@@ -41,20 +58,49 @@ export function createLabPanel({ onToggleSound }) {
   }
 
   return {
-    showIntro() { intro.classList.remove('press-hidden'); hud.classList.add('hud-hidden'); end.classList.remove('visible'); },
-    hideIntro() { intro.classList.add('press-hidden'); hud.classList.remove('hud-hidden'); },
+    showIntro() {
+      intro.classList.remove('press-hidden');
+      hud.classList.add('hud-hidden');
+      timer.classList.add('hud-hidden');
+      speedLines.style.opacity = '0';
+      end.classList.remove('visible');
+    },
+    hideIntro() {
+      intro.classList.add('press-hidden');
+      hud.classList.remove('hud-hidden');
+      timer.classList.remove('hud-hidden');
+    },
     hideEnd() { end.classList.remove('visible'); },
-    showEnd(won) {
+    showEnd(won, title, copy) {
       end.classList.add('visible');
-      end.querySelector('#end-title').textContent = won ? 'YOU ESCAPED' : 'TRY AGAIN';
-      end.querySelector('#end-copy').textContent = won
+      speedLines.style.opacity = '0';
+      end.querySelector('#end-title').textContent = title || (won ? 'YOU ESCAPED' : 'TRY AGAIN');
+      end.querySelector('#end-copy').textContent = copy || (won
         ? 'La ruta está completa.'
-        : 'Pulsa espacio para volver a empezar.';
+        : 'Pulsa espacio para volver a empezar.');
       end.querySelector('.end-restart').textContent = 'PRESS SPACE TO RETRY';
+    },
+    // Actualiza el cronómetro: texto, barra y estado de alerta en los últimos segundos.
+    setTime(seconds, total, warningTime = 3) {
+      const safe = Math.max(0, seconds);
+      timer.querySelector('#timer-value').textContent = safe.toFixed(1);
+      timer.querySelector('#timer-fill').style.width = `${Math.min(100, (safe / total) * 100)}%`;
+      timer.classList.toggle('danger', safe <= warningTime);
+    },
+    // fraction: 0..1 de la velocidad máxima; display: valor mostrado en el HUD.
+    setSpeed(fraction, display) {
+      hud.querySelector('#speed-value').textContent = `${Math.round(display)} KM/H`;
+      const intensity = Math.max(0, (fraction - 0.45) / 0.55);
+      speedLines.style.opacity = String(Math.min(0.55, intensity * 0.55));
     },
     setLetter(name, index, total) {
       hud.querySelector('#letter-name').textContent = `LETRA ${name}`;
       hud.querySelector('#letter-index').textContent = `${String(index).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
+      // La palabra se va "encendiendo" a medida que completas letras.
+      hud.querySelectorAll('#word span').forEach((letter, i) => {
+        letter.classList.toggle('done', i < index - 1);
+        letter.classList.toggle('active', i === index - 1);
+      });
     },
     setCount(n, total) { hud.querySelector('#ring-count').textContent = `${n} / ${total}`; },
     setStatus(text) { hud.querySelector('#status').textContent = text; },
