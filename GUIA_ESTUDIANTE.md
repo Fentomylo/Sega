@@ -17,9 +17,9 @@ No se espera que memorices Three.js, TSL o WebGPU. Sí debes poder:
 ```text
 CONTROLES DEL INTÉRPRETE
         ↓
-PARÁMETROS / UNIFORMS
+PARÁMETROS / UNIFORMSsada
         ↓
-COMPUTE EN GPU
+COMPUTE EN GPUaaaaa
 estado → fuerzas → aceleración → velocidad → posición
         ↓
 BUFFERS DE POSICIÓN Y VELOCIDAD
